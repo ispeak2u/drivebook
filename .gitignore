@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Local npm cache used by Codex sandboxed installs
+.npm-cache/
+
+# Next.js
+.next/
+out/
+
+# Build output
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

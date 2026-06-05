@@ -1,0 +1,26 @@
+{
+  "name": "@drivebook/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "C:\\Progra~1\\nodejs\\node.exe ../../node_modules/next/dist/bin/next dev",
+    "build": "C:\\Progra~1\\nodejs\\node.exe ../../node_modules/next/dist/bin/next build",
+    "typecheck": "tsc --noEmit",
+    "lint": "C:\\Progra~1\\nodejs\\node.exe ../../node_modules/next/dist/bin/next lint"
+  },
+  "dependencies": {
+    "@drivebook/api-client": "0.1.0",
+    "@drivebook/shared-types": "0.1.0",
+    "@drivebook/ui": "0.1.0",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.5.4"
+  }
+}
