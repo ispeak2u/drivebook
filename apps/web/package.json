@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "C:\\Progra~1\\nodejs\\node.exe ../../node_modules/next/dist/bin/next dev",
-    "build": "C:\\Progra~1\\nodejs\\node.exe ../../node_modules/next/dist/bin/next build",
+    "dev": "next dev",
+    "build": "next build",
     "typecheck": "tsc --noEmit",
-    "lint": "C:\\Progra~1\\nodejs\\node.exe ../../node_modules/next/dist/bin/next lint"
+    "lint": "next lint"
   },
   "dependencies": {
     "@drivebook/api-client": "0.1.0",
