@@ -5,8 +5,8 @@ async function main() {
   console.log("🚀 Starting DriveBook Wireframe Generator");
 
   // Load standard fonts
-  await figma.loadFontAsync({ fontFamily: "Inter", style: "Regular" });
-  await figma.loadFontAsync({ fontFamily: "Inter", style: "Bold" });
+  await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+  await figma.loadFontAsync({ family: "Inter", style: "Bold" });
 
   const FRAME_W = 390;
   const FRAME_H = 844;
@@ -165,7 +165,7 @@ async function main() {
     text.x = x;
     text.y = y;
     text.resize(w, h);
-    text.fontName = { fontFamily: "Inter", style: weight };
+    text.fontName = { family: "Inter", style: weight };
     text.fontSize = size;
     text.characters = characters;
     text.textAlignHorizontal = align;
