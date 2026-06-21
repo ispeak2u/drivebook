@@ -1,0 +1,7 @@
+{
+  "name": "DriveBook Wireframe Generator",
+  "id": "drivebook-wireframe-generator-12345",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": ["figma"]
+}
