@@ -1,11 +1,27 @@
-{
+﻿{
   "name": "drivebook",
   "version": "1.0.0",
   "private": true,
+  "description": "DriveBook marketplace monorepo.",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
   "scripts": {
+    "dev": "npm run dev --workspace @drivebook/web",
+    "dev:web": "npm run dev --workspace @drivebook/web",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "export-diagrams": "node scripts/export-diagrams.js"
   },
   "devDependencies": {
-    "@mermaid-js/mermaid-cli": "^11.15.0"
+    "@mermaid-js/mermaid-cli": "^11.15.0",
+    "typescript": "^5.5.4"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

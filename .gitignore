@@ -1,19 +1,33 @@
-# Environment variables — never commit secrets
-.env
-.env.local
-.env.*.local
-
-# Kiro MCP config (may contain tokens)
-.kiro/mcp.json
-
-# Node
+﻿# Dependencies
 node_modules/
-npm-debug.log*
+.npm-cache/
+
+# Next.js
+.next/
+out/
 
 # Build output
 dist/
-.next/
+build/
+coverage/
+*.tsbuildinfo
 
-# OS
+# Environment files
+.env
+.env.*
+!.env.example
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS and editor files
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
+
+# Kiro MCP config
+.kiro/mcp.json

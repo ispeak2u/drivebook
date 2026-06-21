@@ -1,0 +1,18 @@
+{
+  "name": "@drivebook/admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@drivebook/api-client": "0.1.0",
+    "@drivebook/shared-types": "0.1.0",
+    "@drivebook/ui": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
