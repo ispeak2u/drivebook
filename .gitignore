@@ -1,0 +1,19 @@
+# Environment variables — never commit secrets
+.env
+.env.local
+.env.*.local
+
+# Kiro MCP config (may contain tokens)
+.kiro/mcp.json
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Build output
+dist/
+.next/
+
+# OS
+.DS_Store
+Thumbs.db

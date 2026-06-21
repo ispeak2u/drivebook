@@ -1,0 +1,11 @@
+{
+  "name": "drivebook",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "export-diagrams": "node scripts/export-diagrams.js"
+  },
+  "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^11.15.0"
+  }
+}
