@@ -1,0 +1,36 @@
+# Normalize line endings.
+# Git stores LF internally; each machine checks out its native ending.
+# Without this, Windows CRLF vs Linux LF makes every file look modified.
+* text=auto
+
+# Explicitly text, so they always normalize
+*.md      text
+*.ts      text
+*.tsx     text
+*.js      text
+*.jsx     text
+*.json    text
+*.css     text
+*.yml     text
+*.yaml    text
+*.kiro    text
+
+# Windows-only scripts must keep CRLF or cmd.exe misreads them
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+
+# Shell scripts must keep LF or bash fails with "bad interpreter"
+*.sh      text eol=lf
+
+# Binary: never touch these, normalizing would corrupt them
+*.docx    binary
+*.xlsx    binary
+*.pptx    binary
+*.pdf     binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.woff    binary
+*.woff2   binary
