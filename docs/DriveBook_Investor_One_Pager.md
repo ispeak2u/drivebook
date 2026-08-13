@@ -69,12 +69,10 @@ Language matching creates a unique competitive advantage.
 
 Phase 1:
 - Free instructor signup
-- 10% commission on completed lessons
+- Fixed $60 lesson price; DriveBook retains $15 (25% platform take rate), instructor receives $45
 
 Phase 2:
-- DriveBook Pro
-- CAD $19.99/month
-- Reduced 5% commission
+Phase 2 pricing is out of scope until Phase 1 is proven.
 
 Future:
 - Featured listings

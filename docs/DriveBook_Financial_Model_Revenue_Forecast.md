@@ -2,23 +2,21 @@
 # DriveBook Financial Model & Revenue Forecast
 
 ## Phase 1
-10% commission per completed lesson.
+Fixed $60 lesson price. Instructor receives $45; DriveBook retains $15 (25% platform take rate).
 
 Assumptions:
-- Average lesson: CAD $60
-- Commission: CAD $6
+- Lesson price (fixed): CAD $60
+- DriveBook retains: CAD $15
 
 ## Example
 
 25 instructors
 10 bookings/month each
 
-250 bookings x $6 = $1,500/month
+250 bookings x $15 = $3,750/month
 
 ## Phase 2
-DriveBook Pro
-- $19.99/month
-- 5% commission
+Phase 2 pricing is out of scope until Phase 1 is proven.
 
 ## Goal
-Create recurring subscription and transaction revenue.
+Create transaction revenue.
