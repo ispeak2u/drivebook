@@ -1,6 +1,6 @@
 # DriveBook — Pricing Model
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** Active
 **Last updated:** August 2026
 
@@ -83,18 +83,37 @@ conforms to this model and is not to be edited during pricing reconciliation.
 
 ---
 
-## 5. Open items, not yet decided
+## 5. Cost of processing, and open items
 
-These are flagged deliberately. Do not resolve them by inference, and do not
+**5.1 Who absorbs Stripe processing fees. DECIDED, August 2026.**
+
+DriveBook absorbs Stripe processing fees. They are treated as a cost of goods,
+not passed to the student or deducted from the instructor.
+
+| Measure | Amount (CAD) |
+|---|---|
+| Gross platform revenue per lesson | $15.00 |
+| Stripe fee on a $60.00 domestic card (2.9% + $0.30) | $2.04 |
+| Net platform revenue per lesson | approximately $12.96 |
+| Net effective take rate | approximately 21.6% |
+
+The student still pays $60.00 and the instructor still receives $45.00. Neither
+figure is affected by this decision.
+
+Stripe Connect adds further per account and per payout charges that have not
+been confirmed for Canada. Those are not included in the $2.04 above and must be
+confirmed before any margin projection is presented externally.
+
+**Note for whoever builds the financial model:** the Stripe fee is charged per
+transaction, so it does not dilute with volume. Net revenue per lesson stays at
+approximately $12.96 at any scale. Margin improves through dilution of fixed
+costs (hosting, Mapbox, Twilio, Resend, founder time) across more lessons, not
+through improvement on the transaction line. Do not project the transaction
+margin improving with growth. Stripe negotiates custom rates at volume, which is
+a separate lever to revisit later.
+
+The items below remain undecided. Do not resolve them by inference, and do not
 write them into a spec until Don and David decide.
-
-**5.1 Who absorbs Stripe processing fees.**
-Stripe Canada charges 2.9% + C$0.30 on a domestic card. On a $60.00 lesson that
-is $2.04, reducing DriveBook's $15.00 to $12.96 and the effective take rate from
-25% to 21.6%. Stripe Connect adds further per account and payout charges that
-have not been confirmed for Canada. Until decided, financial projections should
-state gross ($15.00) and net (approximately $12.96) side by side rather than
-picking one.
 
 **5.2 HST treatment.**
 Whether the $60.00 is tax inclusive or tax exclusive, and whether DriveBook or
@@ -142,4 +161,4 @@ implements the wrong business model.
 
 ---
 
-*DriveBook Pricing Model, version 1.0. Source of truth for all Phase 1 pricing.*
+*DriveBook Pricing Model, version 1.1. Source of truth for all Phase 1 pricing.*
