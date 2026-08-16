@@ -15,9 +15,10 @@ This document is written for a **junior developer** working with Codex or Kiro. 
 | Inter-service comms | HTTP REST | Simple, debuggable, no broker infra needed at MVP scale |
 | Event bus (MVP) | Supabase Realtime / pg NOTIFY | Zero extra infra; upgrade to Redis Streams / BullMQ in Phase 2 |
 | Database | Single Supabase PostgreSQL instance | RLS enforces service ownership; simpler ops at MVP scale |
-| Frontend | Next.js App Router on Vercel | Server Components for SEO, Edge Middleware for auth |
-| Maps | Mapbox GL JS | Fine-grained control, generous free tier, custom styles |
-| Payments | Stripe Subscriptions + Webhooks | PCI scope off-platform, mature SDK, excellent DX |
+| Mobile client (primary) | React Native + Expo, prebuild and development builds | One TypeScript codebase for iOS and Android. See `docs/DriveBook_Mobile_Stack_Decision_Memo.md` |
+| Web surface | Next.js App Router on Vercel | Admin and marketing only. Server Components for SEO, Edge Middleware for auth |
+| Maps | Mapbox (`rnmapbox/maps` on mobile, Mapbox GL JS on web) | Fine-grained control, generous free tier, custom styles. Note: the React Native binding is community-maintained |
+| Payments | Stripe Connect (Express) + Webhooks | Marketplace payouts to instructors, PCI scope off-platform, mature SDK. Stripe Subscriptions are not used |
 | Email | Resend | Developer-friendly, great TypeScript SDK |
 | SMS | Twilio | Industry standard, reliable Canadian delivery |
 
@@ -112,8 +113,12 @@ For MVP, inter-service events are published via PostgreSQL `NOTIFY` and consumed
 | `instructor.approved` | admin-service | instructor-service, notification-service | `{ instructor_id }` |
 | `instructor.rejected` | admin-service | notification-service | `{ instructor_id, reason }` |
 | `instructor.suspended` | admin-service | booking-service, notification-service | `{ instructor_id }` |
-| `subscription.activated` | payment-service | instructor-service | `{ instructor_id, stripe_sub_id }` |
-| `subscription.deactivated` | payment-service | instructor-service | `{ instructor_id }` |
+| `payout_account.ready` | payment-service | instructor-service | `{ instructor_id, stripe_account_id }` |
+| `payout_account.restricted` | payment-service | instructor-service, notification-service | `{ instructor_id, stripe_account_id, reason }` |
+| `payment.authorised` | payment-service | booking-service | `{ booking_id, payment_intent_id, amount_cents }` |
+| `payment.captured` | payment-service | booking-service, notification-service | `{ booking_id, payment_intent_id, amount_cents }` |
+| `payout.transferred` | payment-service | instructor-service, notification-service | `{ booking_id, instructor_id, transfer_id, amount_cents }` |
+| `payout.failed` | payment-service | admin-service, notification-service | `{ booking_id, instructor_id, reason }` |
 
 ---
 
@@ -128,9 +133,9 @@ Each service **owns** the listed tables/concerns and must **not** write to table
 | **auth-service** | `users` table, JWT issuance, session lifecycle, OAuth flow | Profiles, bookings, payments |
 | **student-service** | Student-facing profile reads, student dashboard aggregation | Bookings (owned by booking-service), auth tokens |
 | **instructor-service** | `instructor_profiles`, `availability_slots`, document storage | Bookings, ratings, payments, auth tokens |
-| **booking-service** | `bookings`, `ratings`, reminder scheduling | Availability slot creation, payment billing, email delivery |
+| **booking-service** | `bookings`, `ratings`, reminder scheduling | Availability slot creation, payment capture and transfers, email delivery |
 | **search-service** | Search index/cache (Redis or in-memory), search query execution | Any persistent table — read-only from `instructor_profiles` + `availability_slots` |
-| **payment-service** | Stripe customer/subscription lifecycle, `stripe_events` (idempotency) | `instructor_profiles.listing_status` (written via HTTP call to instructor-service) |
+| **payment-service** | Stripe Connect account lifecycle, payment intents, transfers, `stripe_events` (idempotency) | `instructor_profiles.listing_status` (written via HTTP call to instructor-service), `bookings` state |
 | **notification-service** | `notifications_log`, email/SMS delivery | Any other table |
 | **admin-service** | `admin_audit_log`, dispute resolution actions | Direct writes to `instructor_profiles` (via instructor-service HTTP) |
 | **location-service** *(Phase 2)* | GTA boundary validation, reverse geocoding cache | All other tables |
@@ -253,8 +258,11 @@ Each service **owns** the listed tables/concerns and must **not** write to table
 - `instructor.suspended` (via pg NOTIFY)
 
 #### Events Consumed
-- `subscription.activated` → set `listing_status = 'active'`
-- `subscription.deactivated` → set `listing_status = 'inactive'`
+- `payout_account.ready` → mark the Instructor payout-ready. Set `listing_status = 'active'` only if the Instructor is also Admin-approved and in good standing.
+- `payout_account.restricted` → clear payout-ready and set `listing_status = 'inactive'`
+- `payout.transferred` → record the transfer against the Instructor's earnings history
+
+`listing_status` is never derived from billing or recurring payment state. See `requirements.md` Requirement 4, criteria 4 and 5.
 
 #### Security Rules
 - Instructors can only modify their own profile
@@ -353,11 +361,10 @@ WHERE status = 'confirmed'
 | `date_from` | ISO 8601 | Earliest lesson start |
 | `date_to` | ISO 8601 | Latest lesson start |
 | `languages` | `string[]` | Filter by spoken languages |
-| `max_rate` | `number` | Maximum hourly rate CAD |
 | `min_rating` | `number` | Minimum average rating |
 | `lat` | `number` | Student pickup latitude |
 | `lng` | `number` | Student pickup longitude |
-| `sort_by` | `enum` | `distance` \| `rating` \| `price_asc` \| `price_desc` |
+| `sort_by` | `enum` | `distance` \| `rating` (price sorts omitted in Phase 1, fixed price) |
 | `page` | `number` | Page number (default: 1) |
 | `per_page` | `number` | Results per page (default: 10, max: 50) |
 
@@ -397,34 +404,46 @@ Search results are cached for **60 seconds** using a keyed by a hash of all quer
 ### 6. Payment Service (`services/payment-service`)
 
 **Port:** 3006  
-**Responsibility:** Stripe subscription lifecycle and webhook processing.
+**Responsibility:** Stripe Connect account lifecycle, booking payment authorisation and capture, instructor transfers, and webhook processing.
+
+Money model is fixed and defined in `docs/PRICING_MODEL.md`: Student pays $60.00, Instructor receives $45.00, DriveBook retains $15.00. Stripe processing fees are absorbed by DriveBook and are never added to the Student charge or deducted from the Instructor transfer.
 
 #### What it owns
 - `stripe_events` table (idempotency log)
-- Stripe customer and subscription management
+- Stripe Connect Express account creation and onboarding links
+- Payment intents for bookings, including authorisation, capture, and refund
+- Transfers to instructor connected accounts
 
 #### What it does NOT own
 - `instructor_profiles.listing_status` — written via HTTP call to instructor-service
+- `bookings` state — owned by booking-service
+- Cancellation and penalty rules — defined in `docs/DriveBook_Cancellation_and_Confirmation_Policy.md`
 - Email notifications — delegated to notification-service
 
 #### API Endpoints
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/payments/checkout` | Bearer (instructor) | Create Stripe checkout session |
-| `POST` | `/payments/portal` | Bearer (instructor) | Create Stripe billing portal session |
-| `GET` | `/payments/status` | Bearer (instructor) | Get own subscription status |
+| `POST` | `/payments/connect/onboard` | Bearer (instructor) | Create a Stripe Connect Express onboarding link |
+| `GET` | `/payments/connect/status` | Bearer (instructor) | Get own connected account status and payout readiness |
+| `POST` | `/payments/intents` | Internal (booking-service) | Authorise $60.00 for a booking |
+| `POST` | `/payments/intents/:id/capture` | Internal (booking-service) | Capture on lesson completion and transfer $45.00 |
+| `POST` | `/payments/intents/:id/refund` | Internal (booking-service) | Refund per the Cancellation Policy |
+| `GET` | `/payments/earnings` | Bearer (instructor) | Own earnings and transfer history |
 | `POST` | `/webhooks/stripe` | Stripe-Signature header | Handle Stripe webhook events |
 
 #### Stripe Webhook Events Handled
 
 | Event | Action |
 |---|---|
-| `customer.subscription.created` | Call instructor-service to set `listing_status = 'active'`; record sub details |
-| `customer.subscription.updated` | Sync subscription status |
-| `customer.subscription.deleted` | Call instructor-service to set `listing_status = 'inactive'` |
-| `invoice.payment_succeeded` | Update `sub_period_end`; notify via notification-service |
-| `invoice.payment_failed` | Call instructor-service to set `listing_status = 'inactive'`; send failure email |
+| `account.updated` | If `charges_enabled` and `payouts_enabled`, publish `payout_account.ready`. Otherwise publish `payout_account.restricted` |
+| `payment_intent.succeeded` | Mark booking payment captured, publish `payment.captured` |
+| `payment_intent.payment_failed` | Publish payment failure, notify Student via notification-service |
+| `payment_intent.canceled` | Release the hold, publish cancellation |
+| `charge.refunded` | Record refund against the booking |
+| `transfer.created` | Record the $45.00 instructor transfer, publish `payout.transferred` |
+| `transfer.failed` | Publish `payout.failed`, flag for admin review |
+| `customer.subscription.*`, `invoice.*` | **Not handled.** DriveBook does not use Stripe Subscriptions |
 | *(any other event)* | Log event, return `200 OK` |
 
 #### Idempotency
@@ -622,7 +641,12 @@ CREATE TABLE instructor_profiles (
   listing_status        TEXT NOT NULL DEFAULT 'inactive'
                         CHECK (listing_status IN ('active','inactive')),
   bio                   TEXT CHECK (char_length(bio) <= 500),
-  hourly_rate_cad       NUMERIC(8,2) NOT NULL CHECK (hourly_rate_cad > 0),
+  -- Phase 1 price is fixed platform-wide. The CHECK constraint is the enforcement:
+  -- a doc saying "instructors cannot set their rate" is a preference, this is a rule
+  -- the database will not let anyone violate. Relax it deliberately in Phase 2.
+  -- See docs/PRICING_MODEL.md section 1.
+  hourly_rate_cad       NUMERIC(8,2) NOT NULL DEFAULT 60.00
+                        CHECK (hourly_rate_cad = 60.00),
   years_experience      INT NOT NULL CHECK (years_experience >= 0),
   languages             TEXT[] NOT NULL,
   vehicle_make          TEXT,
@@ -637,11 +661,12 @@ CREATE TABLE instructor_profiles (
   avg_rating            NUMERIC(3,2) NOT NULL DEFAULT 0.00,
   total_bookings        INT NOT NULL DEFAULT 0,
   cancellation_count    INT NOT NULL DEFAULT 0,
-  stripe_customer_id    TEXT UNIQUE,
-  stripe_sub_id         TEXT UNIQUE,
-  stripe_sub_status     TEXT,
-  sub_period_start      TIMESTAMPTZ,
-  sub_period_end        TIMESTAMPTZ,
+  -- Stripe Connect Express account that receives the $45.00 instructor payout.
+  -- There is no customer or subscription record: instructors are paid, not billed.
+  stripe_account_id     TEXT UNIQUE,
+  charges_enabled       BOOLEAN NOT NULL DEFAULT false,
+  payouts_enabled       BOOLEAN NOT NULL DEFAULT false,
+  payout_ready_at       TIMESTAMPTZ,
   admin_notes           TEXT,
   rejected_reason       TEXT,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -735,7 +760,16 @@ CREATE TABLE bookings (
   lesson_date     DATE NOT NULL,
   start_time      TIMESTAMPTZ NOT NULL,
   end_time        TIMESTAMPTZ NOT NULL,
-  hourly_rate_cad NUMERIC(8,2) NOT NULL,
+  -- Money split, snapshotted at booking time so historical bookings stay correct
+  -- if pricing changes later. The CHECK is the enforcement behind Correctness
+  -- Property 6: the split must always reconcile to the student charge exactly.
+  lesson_price_cad     NUMERIC(8,2) NOT NULL DEFAULT 60.00,
+  instructor_payout_cad NUMERIC(8,2) NOT NULL DEFAULT 45.00,
+  platform_fee_cad     NUMERIC(8,2) NOT NULL DEFAULT 15.00,
+  CONSTRAINT booking_split_reconciles
+    CHECK (instructor_payout_cad + platform_fee_cad = lesson_price_cad),
+  stripe_payment_intent_id TEXT UNIQUE,
+  stripe_transfer_id       TEXT UNIQUE,
   review_status   TEXT NOT NULL DEFAULT 'pending'
                   CHECK (review_status IN ('pending', 'reviewed', 'skipped')),
   cancelled_at    TIMESTAMPTZ,
@@ -939,7 +973,7 @@ users (auth-service)
   │     │               ├──< ratings (booking-service)
   │     │               └──< disputes (admin-service)
   │     │
-  │     └── stripe_events (payment-service) [linked by stripe_customer_id]
+  │     └── stripe_events (payment-service) [linked by stripe_account_id]
   │
   ├──< bookings.student_id
   ├──< notifications_log (notification-service)
@@ -994,11 +1028,29 @@ users (auth-service)
 
 ---
 
-### Property 6: Subscription Status Sync with Stripe Events
+### Property 6: Booking Money Split Is Exact and Conserved
 
-*For any* valid Stripe subscription event payload received by the webhook handler, the instructor's `listing_status` SHALL be set to `'active'` on `invoice.payment_succeeded` and to `'inactive'` on `invoice.payment_failed` or `customer.subscription.deleted`; the transition SHALL be applied exactly once regardless of how many times the same event is replayed (idempotency).
+*For any* Booking that reaches the `completed` state, the amount charged to the Student SHALL equal `bookings.lesson_price_cad`, the amount transferred to the Instructor's connected account SHALL equal `bookings.instructor_payout_cad`, and the amount retained by DriveBook SHALL equal `bookings.platform_fee_cad`. Those three values SHALL satisfy `instructor_payout_cad + platform_fee_cad = lesson_price_cad` with zero remainder. Stripe processing fees SHALL be drawn from the platform fee and SHALL NOT alter the Student charge or the Instructor transfer.
 
-**Validates: Requirements 4.2, 4.3, 4.5**
+The property is stated against the snapshot columns rather than against literal amounts so that it does not become another place the price is restated. For Phase 1 those columns default to $60.00, $45.00, and $15.00 per `docs/PRICING_MODEL.md`.
+
+**Validates: Requirements 4.7, 4.9, 4.10, 4.11**
+
+---
+
+### Property 6a: Listing Status Is Never Derived From Billing State
+
+*For any* sequence of Stripe events received by the webhook handler, the instructor's `listing_status` SHALL be a function only of Admin approval, payout-readiness (`charges_enabled` and `payouts_enabled` on the connected account), and standing under the strike system. No recurring-payment, invoice, or subscription event SHALL be capable of transitioning `listing_status`.
+
+**Validates: Requirements 4.4, 4.5**
+
+---
+
+### Property 6b: Webhook Idempotency
+
+*For any* Stripe event delivered to the webhook handler, the resulting state transition SHALL be applied exactly once regardless of how many times Stripe replays that event, enforced via the `event_id` uniqueness check against the `stripe_events` table. Replayed events SHALL return `200 OK` without reapplying side effects, and SHALL NOT produce duplicate transfers.
+
+**Validates: Requirements 4.14, 4.15, 4.16**
 
 ---
 
@@ -1052,7 +1104,9 @@ users (auth-service)
 
 ### Property 13: Search Result Ordering Is Correct for All Sort Modes
 
-*For any* set of search results and a specified `sort_by` parameter, the results SHALL be ordered such that: `distance` → ascending Haversine distance from pickup pin; `rating` → descending `avg_rating`; `price_asc` → ascending `hourly_rate_cad`; `price_desc` → descending `hourly_rate_cad`. Adjacent pairs in the returned list SHALL satisfy the ordering relation.
+*For any* set of search results and a specified `sort_by` parameter, the results SHALL be ordered such that: `distance` → ascending Haversine distance from pickup pin; `rating` → descending `avg_rating`. Adjacent pairs in the returned list SHALL satisfy the ordering relation.
+
+`price_asc` and `price_desc` are **not offered in Phase 1**. Every instructor charges the same $60.00, so a price sort would return an arbitrary order while implying a meaningful one. The search API SHALL reject an unsupported `sort_by` value with a 400 rather than silently falling back.
 
 **Validates: Requirements 7.3, 7.4**
 
@@ -1356,7 +1410,7 @@ it('distance sort returns ascending order', () => {
         service_area_lat: fc.float({ min: 43.5, max: 43.9 }),
         service_area_lng: fc.float({ min: -79.7, max: -79.1 }),
         avg_rating: fc.float({ min: 1, max: 5 }),
-        hourly_rate_cad: fc.float({ min: 20, max: 200 }),
+        hourly_rate_cad: fc.constant(60.00), // fixed platform-wide in Phase 1
       }), { minLength: 2 }),
       fc.record({
         lat: fc.float({ min: 43.5, max: 43.9 }),
@@ -1396,7 +1450,9 @@ These run against a local Supabase instance and Stripe's test mode:
 | Auth flow | Register → verify email → login → get JWT |
 | Instructor approval | Submit application → Admin approves → listing becomes activatable |
 | Booking round-trip | Create slot → Book → Cancel → Slot restored |
-| Stripe subscription | Checkout → webhook received → listing activated |
+| Stripe Connect onboarding | Create Express account → complete onboarding → `account.updated` webhook received → instructor marked payout-ready |
+| Booking payment round-trip | Authorise $60.00 → mark lesson complete → capture → $45.00 transferred to connected account → $15.00 retained |
+| Webhook idempotency | Replay the same Stripe event 3 times → exactly one state transition, exactly one transfer |
 | Mapbox geocoding | 2 known GTA coordinates return correct addresses |
 
 ### E2E Tests (Playwright)

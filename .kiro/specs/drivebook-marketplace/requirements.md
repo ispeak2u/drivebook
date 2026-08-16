@@ -4,7 +4,7 @@
 
 DriveBook is a Toronto-based two-sided marketplace that connects students preparing for Ontario G2 and G road tests with verified, professional driving instructors. The platform eliminates the friction of discovery, scheduling, payments, and accountability that currently plagues both sides of the market.
 
-Students find trusted instructors by availability, language, pickup location, and rating — then book and pay in minutes. Instructors get a steady pipeline of students, automated scheduling, and a subscription-based management tool that replaces their patchwork of Facebook ads, Kijiji posts, and manual DMs.
+Students find trusted instructors by availability, language, pickup location, and rating, then book and pay in minutes. Instructors join free and get a steady pipeline of students, automated scheduling, guaranteed payment, and a management tool that replaces their patchwork of Facebook ads, Kijiji posts, and manual DMs.
 
 This document covers the complete product requirements for the DriveBook MVP, including user personas, user stories, service architecture, folder structure, database model, API contracts, build phases, acceptance criteria, and agent instructions for Codex-assisted development.
 
@@ -18,11 +18,13 @@ This document covers the complete product requirements for the DriveBook MVP, in
 - **Booking**: A confirmed lesson session between a Student and an Instructor at a specific date, time, and pickup location.
 - **Availability Slot**: A time window uploaded by an Instructor indicating they are available for bookings.
 - **Pickup Pin**: A geographic coordinate dropped by a Student on a map to indicate their desired lesson pickup location.
-- **Subscription**: A recurring monthly payment made by an Instructor to maintain an active listing on the platform.
-- **Rating**: A 1–5 star score submitted by a Student after a completed Booking.
+- **Platform Fee**: The fixed $15.00 CAD DriveBook retains from each completed Booking. See `docs/PRICING_MODEL.md`.
+- **Instructor Payout**: The fixed $45.00 CAD transferred to an Instructor for each completed Booking.
+- **Connected Account**: An Instructor's Stripe Connect Express account, which receives payouts.
+- **Rating**: A 1 to 5 star score submitted by a Student after a completed Booking.
 - **Review**: An optional text comment submitted by a Student alongside a Rating.
 - **Dispute**: A formal complaint raised by either a Student or Instructor regarding a Booking.
-- **Stripe**: The third-party payment processor used for Subscription billing and future Booking payments.
+- **Stripe**: The third-party payment processor. DriveBook uses Stripe Connect (Express accounts) for Booking payments and Instructor payouts. Stripe Subscriptions are not used.
 - **Supabase**: The backend-as-a-service platform providing PostgreSQL database and authentication.
 - **Platform**: The DriveBook system as a whole, including all services, frontend, and admin tools.
 - **Service**: An independently deployable Node/TypeScript module within the monorepo.
@@ -69,21 +71,25 @@ The MVP delivers the core booking loop end-to-end:
 **In scope:**
 - Student and Instructor registration and authentication (email + OAuth via Supabase)
 - Instructor profile creation, document upload, and admin approval workflow
-- Instructor subscription via Stripe ($20/month)
-- Availability management (weekly, bi-weekly, or monthly slots)
-- Student search and filter (location, language, rating, price, availability)
-- Pickup pin drop on a map (Mapbox or Google Maps)
+- Free Instructor sign-up with Stripe Connect Express onboarding for payouts
+- Availability management (one-off, weekly, or bi-weekly recurring slots)
+- Student search and filter (location, language, rating, availability)
+- Pickup pin drop on a map (Mapbox)
 - Booking creation, confirmation, and cancellation
+- Fixed-price lesson payment: Student pays $60.00, Instructor receives $45.00, DriveBook retains $15.00
 - Automated email and SMS reminders (24h and 2h before lesson)
 - Post-lesson ratings and reviews
 - Dispute submission and admin resolution
-- Admin dashboard (instructor approval, dispute management, subscription status)
-- Responsive web app (Next.js, mobile-first)
+- Admin dashboard (instructor approval, dispute management, payout and booking health)
+- **Mobile application (React Native + Expo) as the primary client, iOS and Android**
+- Responsive web surface (Next.js) for admin and marketing only
 
 **Out of scope for MVP:**
-- Mobile native apps (iOS/Android)
+- Separate native iOS (Swift) or native Android (Kotlin) codebases. Formally reconsidered and rejected in August 2026, see `docs/DriveBook_Mobile_Stack_Decision_Memo.md`
+- A student- or instructor-facing transactional web app. Web is admin and marketing only
 - In-app messaging/chat
-- Booking commission fees (subscription-only model at launch)
+- Instructor subscriptions or Pro plans of any kind
+- Percentage commission, tiered commission, or instructor-set rates. All Phase 2, see `docs/PRICING_MODEL.md` section 1
 - Multi-city expansion
 - Lesson packages or bundles
 - Video verification calls
@@ -141,19 +147,32 @@ The MVP delivers the core booking loop end-to-end:
 
 ---
 
-### Requirement 4: Instructor Subscription Management
+### Requirement 4: Lesson Payment and Instructor Payouts
 
-**User Story:** As an Instructor, I want to subscribe to the platform for $20/month, so that I can access the booking management tools and appear in student searches.
+> Governed by `docs/PRICING_MODEL.md`, the single source of truth for pricing.
+> Instructors join free. There is no subscription and no percentage commission.
+
+**User Story:** As an Instructor, I want to join free and receive my fixed $45 share automatically after each completed lesson, so that I am paid reliably without invoicing anyone or paying to be listed.
 
 #### Acceptance Criteria
 
-1. WHEN an approved Instructor attempts to activate their listing, THE Platform SHALL redirect the Instructor to a Stripe-hosted checkout page for a $20 CAD/month recurring subscription.
-2. WHEN a Stripe subscription payment succeeds, THE Platform SHALL set the Instructor listing status to `active` and record the subscription ID, current period start, and current period end.
-3. WHEN a Stripe subscription payment fails, THE Platform SHALL set the Instructor listing status to `inactive` and send the Instructor a payment failure notification email.
-4. WHILE an Instructor listing status is `inactive`, THE Platform SHALL hide the Instructor from Student search results.
-5. WHEN an Instructor cancels their Stripe subscription, THE Platform SHALL retain the Instructor listing as `active` until the end of the current billing period, then set status to `inactive`.
-6. THE Platform SHALL process all Stripe subscription webhook events within 30 seconds of receipt.
-7. IF a Stripe webhook event is received with an unrecognised event type, THEN THE Platform SHALL log the event and return a 200 OK response to Stripe.
+1. THE Platform SHALL NOT charge Instructors any subscription, listing, or recurring fee.
+2. WHEN an Admin approves an Instructor, THE Platform SHALL require the Instructor to complete Stripe Connect Express onboarding before their listing may become `active`.
+3. WHEN Stripe reports an `account.updated` event indicating `charges_enabled` and `payouts_enabled` are both true for a connected account, THE Platform SHALL record the connected account as payout-ready.
+4. THE Platform SHALL set Instructor `listing_status` to `active` only when the Instructor is Admin-approved, payout-ready, and in good standing under the strike system defined in `docs/DriveBook_Cancellation_and_Confirmation_Policy.md`.
+5. THE Platform SHALL NOT derive `listing_status` from any recurring payment, billing state, or subscription event.
+6. WHILE an Instructor `listing_status` is `inactive`, THE Platform SHALL hide the Instructor from Student search results.
+7. WHEN a Student confirms a Booking, THE Platform SHALL authorise a payment of exactly $60.00 CAD from the Student.
+8. THE Platform SHALL hold authorised Booking funds until the Booking is marked complete, cancelled, or resolved under the Cancellation Policy.
+9. WHEN a Booking is marked complete, THE Platform SHALL transfer exactly $45.00 CAD to the Instructor's connected account and retain exactly $15.00 CAD as platform revenue.
+10. THE Platform SHALL absorb Stripe processing fees as a cost of goods. Processing fees SHALL NOT be added to the Student's $60.00 payment nor deducted from the Instructor's $45.00 transfer.
+11. THE Platform SHALL NOT permit an Instructor to set their own lesson price. The lesson price is fixed at $60.00 CAD platform-wide for Phase 1.
+12. WHERE a Booking is cancelled, results in a no-show, or incurs a penalty, THE Platform SHALL apply the amounts and splits defined in `docs/DriveBook_Cancellation_and_Confirmation_Policy.md` rather than any figure stated in this requirement.
+13. THE Platform SHALL batch Instructor payouts on a recurring schedule. **OPEN ITEM:** the payout day, cutoff time, and minimum payout threshold are undecided (see `docs/PRICING_MODEL.md` section 5.3) and SHALL NOT be implemented until specified.
+14. THE Platform SHALL process all Stripe webhook events within 30 seconds of receipt.
+15. THE Platform SHALL apply each Stripe webhook event exactly once regardless of how many times Stripe replays it.
+16. IF a Stripe webhook event is received with an unrecognised event type, THEN THE Platform SHALL log the event and return a 200 OK response to Stripe.
+17. THE Platform SHALL treat `payment_intent.*`, `transfer.*`, and `account.updated` as the Stripe event families of interest. `customer.subscription.*` events SHALL NOT be handled.
 
 ---
 
@@ -163,10 +182,11 @@ The MVP delivers the core booking loop end-to-end:
 
 #### Acceptance Criteria
 
-1. THE Platform SHALL allow an active Instructor to update the following profile fields: profile photo, bio (max 500 characters), hourly rate (CAD), languages spoken, vehicle make and model, service areas, and years of experience.
-2. WHEN an Instructor updates their profile, THE Platform SHALL persist the changes and reflect them in Student-facing search results within 60 seconds.
-3. THE Platform SHALL display the Instructor's average Rating, total number of completed Bookings, and member-since date on the public profile page.
-4. THE Platform SHALL display verified badges on Instructor profiles that have completed the Admin approval process.
+1. THE Platform SHALL allow an active Instructor to update the following profile fields: profile photo, bio (max 500 characters), languages spoken, vehicle make and model, service areas, and years of experience.
+2. THE Platform SHALL display the lesson rate as a read-only $60.00 CAD on the Instructor profile. The Instructor SHALL NOT be able to edit it (see `docs/PRICING_MODEL.md` section 1).
+3. WHEN an Instructor updates their profile, THE Platform SHALL persist the changes and reflect them in Student-facing search results within 60 seconds.
+4. THE Platform SHALL display the Instructor's average Rating, total number of completed Bookings, and member-since date on the public profile page.
+5. THE Platform SHALL display verified badges on Instructor profiles that have completed the Admin approval process.
 
 ---
 
@@ -322,7 +342,7 @@ The MVP delivers the core booking loop end-to-end:
 
 1. THE Admin Dashboard SHALL be accessible only to users with the `admin` role.
 2. IF a non-admin user attempts to access the Admin Dashboard, THEN THE Platform SHALL return a 403 Forbidden response.
-3. THE Admin Dashboard SHALL display platform health metrics: total registered Students, total registered Instructors by status, total Bookings this month, total active Subscriptions, and total open Disputes.
+3. THE Admin Dashboard SHALL display platform health metrics: total registered Students, total registered Instructors by status, total Bookings this month, gross platform revenue this month, Instructors pending Stripe Connect onboarding, and total open Disputes.
 4. THE Admin Dashboard SHALL allow an Admin to search for any Student or Instructor account by email address.
 5. THE Admin Dashboard SHALL allow an Admin to manually set an Instructor account status to `suspended` with a required reason field.
 
@@ -364,7 +384,7 @@ DriveBook uses a **monorepo, microservices-lite** architecture. Each service is 
 | **instructor-service** | Instructor profiles, document uploads, availability slots, admin approval |
 | **booking-service** | Booking lifecycle, cancellation, completion, rating |
 | **search-service** | Instructor search, filtering, ranking by location/rating/price |
-| **payment-service** | Stripe subscription webhook handling, billing status |
+| **payment-service** | Stripe Connect onboarding, booking payment authorisation and capture, instructor transfers, payout batching, webhook handling |
 | **notification-service** | Transactional email (SendGrid/Resend) and SMS (Twilio) |
 | **admin-service** | Admin dashboard data, instructor approval actions, dispute resolution |
 
@@ -494,7 +514,8 @@ status              TEXT NOT NULL DEFAULT 'pending_review'
 listing_status      TEXT NOT NULL DEFAULT 'inactive'
                     CHECK (listing_status IN ('active','inactive'))
 bio                 TEXT CHECK (char_length(bio) <= 500)
-hourly_rate_cad     NUMERIC(8,2) NOT NULL
+hourly_rate_cad     NUMERIC(8,2) NOT NULL DEFAULT 60.00
+                    CHECK (hourly_rate_cad = 60.00)   -- fixed in Phase 1, enforced at DB level
 years_experience    INT NOT NULL
 languages           TEXT[] NOT NULL
 vehicle_make        TEXT
@@ -507,11 +528,10 @@ insurance_url       TEXT
 avg_rating          NUMERIC(3,2) DEFAULT 0
 total_bookings      INT DEFAULT 0
 cancellation_count  INT DEFAULT 0
-stripe_customer_id  TEXT
-stripe_sub_id       TEXT
-stripe_sub_status   TEXT
-sub_period_start    TIMESTAMPTZ
-sub_period_end      TIMESTAMPTZ
+stripe_account_id   TEXT UNIQUE
+charges_enabled     BOOLEAN NOT NULL DEFAULT false
+payouts_enabled     BOOLEAN NOT NULL DEFAULT false
+payout_ready_at     TIMESTAMPTZ
 admin_notes         TEXT
 rejected_reason     TEXT
 created_at          TIMESTAMPTZ DEFAULT now()
@@ -743,7 +763,9 @@ Authenticated Instructor only.
 
 Public endpoint.
 
-**Query params:** `date_from`, `date_to`, `languages`, `max_rate`, `min_rating`, `lat`, `lng`, `sort_by` (`distance` | `rating` | `price_asc` | `price_desc`), `page`, `per_page`
+**Query params:** `date_from`, `date_to`, `languages`, `min_rating`, `lat`, `lng`, `sort_by` (`distance` | `rating`), `page`, `per_page`
+
+`max_rate` and price sorting are omitted in Phase 1: the lesson price is fixed at $60.00 for every instructor, so filtering or sorting on it is meaningless. See `docs/PRICING_MODEL.md`.
 
 **Response `200`:**
 ```json
@@ -849,11 +871,17 @@ Authenticated Student only. Booking must have status `completed`.
 Stripe webhook endpoint (unauthenticated, verified by Stripe signature header).
 
 **Handled events:**
-- `customer.subscription.created`
-- `customer.subscription.updated`
-- `customer.subscription.deleted`
-- `invoice.payment_succeeded`
-- `invoice.payment_failed`
+- `payment_intent.succeeded`
+- `payment_intent.payment_failed`
+- `payment_intent.canceled`
+- `charge.refunded`
+- `transfer.created`
+- `transfer.failed`
+- `account.updated`
+
+`customer.subscription.*` and `invoice.*` events are not handled. DriveBook does not use Stripe Subscriptions.
+
+Each event is applied exactly once. Replays are absorbed idempotently via the `stripe_events` table.
 
 **Response `200`:** Always returns 200 on receipt.
 
@@ -1008,15 +1036,20 @@ Goal: End-to-end booking creation, confirmation, and cancellation.
 
 ---
 
-### Phase 5 — Payments and Subscriptions (Weeks 9–10)
+### Phase 5 — Payments and Payouts (Weeks 9 to 10)
 
-Goal: Instructor subscription billing via Stripe.
+Goal: fixed-price booking payments and instructor payouts via Stripe Connect.
 
-- Implement `payment-service`: Stripe customer creation, subscription checkout, webhook handler
-- Stripe subscription status reflected in Instructor listing status
-- Billing portal link for Instructors to manage their subscription
+- Implement `payment-service`: Stripe Connect Express onboarding, payment authorisation, capture on completion, transfers to connected accounts, webhook handler
+- Authorise $60.00 on booking confirmation, hold until completion
+- On completion, transfer $45.00 to the Instructor and retain $15.00
+- Idempotent webhook processing via the `stripe_events` table
+- Instructor listing activation gated on Admin approval, payout-readiness, and good standing, never on billing state
+- Refund and penalty handling per `docs/DriveBook_Cancellation_and_Confirmation_Policy.md`
 
-**Milestone:** Instructor can subscribe for $20/month and be activated on the platform.
+**Milestone:** a Student can pay $60.00 for a lesson, the Instructor receives $45.00 on completion, and DriveBook retains $15.00.
+
+**Blocked:** payout batching (day, cutoff, minimum threshold) is undecided. See `docs/PRICING_MODEL.md` section 5.3. Do not implement until specified.
 
 ---
 
